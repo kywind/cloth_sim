@@ -40,3 +40,7 @@ uv pip install opencv-python omegaconf hydra-core pynput transforms3d ipdb joyco
 ```
 python experiments/demo.py
 ```
+
+This command runs a manually defined robot action trajectory, shown as follows:
+
+https://github.com/user-attachments/assets/c8cdb991-998f-4cec-9853-c7a65b4a8f7d
