@@ -48,3 +48,9 @@ python experiments/demo.py
 This command runs a manually defined robot action trajectory, shown as follows:
 
 https://github.com/user-attachments/assets/d9273615-c808-4415-bdf4-64beb6ecd5f9
+
+---
+
+## Contact
+
+For any questions regarding the repository, please create issues or contact the author, [Kaifeng Zhang](https://kywind.github.io/).
