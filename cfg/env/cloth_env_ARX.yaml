@@ -1,0 +1,6 @@
+name: sim.env.ClothEnvARXV1
+viewer: gl
+num_frames: 1000
+headless: False
+use_graph: True
+planner: diffik
