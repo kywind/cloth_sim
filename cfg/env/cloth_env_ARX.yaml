@@ -5,6 +5,8 @@ num_robot: 2
 endeffector_id: 6
 num_arm_joints: 6
 num_gripper_joints: 2
+gripper_min: 0.005
+gripper_max: 0.04
 use_mujoco: True
 cloth_solver_type: style3d
 

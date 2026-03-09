@@ -62,7 +62,31 @@ class ClothEnvBase(BaseEnv):
 
         # Evaluate FK and copy initial joint positions to control targets
         newton.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, self.state_0)
-        wp.copy(self.control.joint_target_pos, self.model.joint_q)
+
+        # Initialize control targets
+        for j in range(self.model.joint_count):
+            joint_q_start = int(self.model.joint_q_start.numpy()[j])
+            joint_q_end = int(self.model.joint_q_start.numpy()[j + 1])
+            joint_qd_start = int(self.model.joint_qd_start.numpy()[j])
+            joint_qd_end = int(self.model.joint_qd_start.numpy()[j + 1])
+            if self.model.joint_type.numpy()[j] == newton.JointType.FREE:
+                assert joint_q_end - joint_q_start == 7 and joint_qd_end - joint_qd_start == 6
+                wp.copy(
+                    self.control.joint_target_pos,
+                    self.model.joint_q,
+                    dest_offset=joint_qd_start,
+                    src_offset=joint_q_start,
+                    count=6,  # special treatment for free joints because coord_dim=7 but dof_dim=6
+                )
+            elif joint_q_end - joint_q_start > 0:
+                assert joint_q_end - joint_q_start == joint_qd_end - joint_qd_start
+                wp.copy(
+                    self.control.joint_target_pos,
+                    self.model.joint_q,
+                    dest_offset=joint_qd_start,
+                    src_offset=joint_q_start,
+                    count=joint_q_end - joint_q_start,
+                )
 
         # Collision pipeline
         sdf_hydroelastic_config = newton.geometry.HydroelasticSDF.Config(
