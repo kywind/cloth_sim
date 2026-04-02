@@ -72,7 +72,7 @@ python experiments/demo.py renderer=tiled_camera_renderer
 python experiments/demo.py renderer=tiled_camera_renderer renderer.colors_per_shape=False
 ```
 
-https://github.com/user-attachments/assets/aff80727-78e5-4b54-a5f4-3e10f637680f
+https://github.com/user-attachments/assets/21b3ced4-b4a9-4085-85cb-d2ad1032deb4
 
 ---
 

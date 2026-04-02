@@ -146,6 +146,15 @@ class ClothLoadingTask(BaseTask):
             selected.append(int(np.argmax(min_dists)))
         return np.array(selected, dtype=np.int64)
 
+    @staticmethod
+    def _quat_rotate_batch(quat: np.ndarray, vec: np.ndarray) -> np.ndarray:
+        """Rotate vec by quaternion (xyzw) for a batch of quaternions (N, 4)."""
+        qvec = quat[:, :3]  # (N, 3)
+        w = quat[:, 3:4]    # (N, 1)
+        uv = np.cross(qvec, vec)           # (N, 3)
+        uuv = np.cross(qvec, uv)           # (N, 3)
+        return vec + 2.0 * (w * uv + uuv)  # (N, 3)
+
     def _get_ee(self, env):
         body_q = env.state_0.body_q.numpy()
         return (
@@ -176,13 +185,18 @@ class ClothLoadingTask(BaseTask):
         cloth_pos = self._get_cloth_particles(env)
         l_gw, r_gw = self._get_gripper_widths(env)
 
-        l_dists = np.linalg.norm(cloth_pos - l_pos[:, None, :], axis=2)
-        l_nearest = l_dists.argmin(axis=1)
-        l_ee_to_cloth = cloth_pos[np.arange(env.num_envs), l_nearest] - l_pos
+        # Compute EE tip positions by applying a local offset along the EE frame
+        tip_offset_local = np.array([0.155, 0.0, 0.0], dtype=np.float32)
+        l_tip = l_pos + self._quat_rotate_batch(l_quat, tip_offset_local)
+        r_tip = r_pos + self._quat_rotate_batch(r_quat, tip_offset_local)
 
-        r_dists = np.linalg.norm(cloth_pos - r_pos[:, None, :], axis=2)
+        l_dists = np.linalg.norm(cloth_pos - l_tip[:, None, :], axis=2)
+        l_nearest = l_dists.argmin(axis=1)
+        l_ee_to_cloth = cloth_pos[np.arange(env.num_envs), l_nearest] - l_tip
+
+        r_dists = np.linalg.norm(cloth_pos - r_tip[:, None, :], axis=2)
         r_nearest = r_dists.argmin(axis=1)
-        r_ee_to_cloth = cloth_pos[np.arange(env.num_envs), r_nearest] - r_pos
+        r_ee_to_cloth = cloth_pos[np.arange(env.num_envs), r_nearest] - r_tip
 
         # Cloth keypoint positions: (N, num_keypoints, 3) → (N, num_keypoints * 3)
         cloth_keypoints = cloth_pos[:, self._keypoint_indices, :].reshape(env.num_envs, -1)
