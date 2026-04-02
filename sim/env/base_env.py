@@ -26,6 +26,7 @@ class BaseEnv:
         self.cfg = cfg
         self.viewer = newton.viewer.ViewerGL(headless=cfg.env.headless)
 
+        self.num_envs = int(self.cfg.env.num_envs)
         self.model = None
         self.state_0 = None
         self.state_1 = None
@@ -36,8 +37,9 @@ class BaseEnv:
         self.gravity_zero = wp.zeros(1, dtype=wp.vec3)
         self.gravity_earth = wp.array(wp.vec3(0.0, 0.0, -9.81), dtype=wp.vec3)
 
-    def initialize_resources(self):
-        self.setup_renderer()
+    def initialize_resources(self, no_renderer: bool = False):
+        if not no_renderer:
+            self.setup_renderer()
         self.setup_controller()
 
     def reset(self, seed=None, options=None):
@@ -93,21 +95,28 @@ class BaseEnv:
         elif geo_type == newton.GeoType.PLANE:
             width = scale[0] if len(scale) > 0 and scale[0] > 0.0 else 1000.0
             length = scale[1] if len(scale) > 1 and scale[1] > 0.0 else 1000.0
-            vertices, faces = newton.utils.create_plane_mesh(width, length)
+            m = newton.Mesh.create_plane(width, length, compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         elif geo_type == newton.GeoType.SPHERE:
-            vertices, faces = newton.utils.create_sphere_mesh(scale[0])
+            m = newton.Mesh.create_sphere(scale[0], compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         elif geo_type == newton.GeoType.CAPSULE:
-            vertices, faces = newton.utils.create_capsule_mesh(scale[0], scale[1], up_axis=2)
+            m = newton.Mesh.create_capsule(scale[0], scale[1], up_axis=newton.Axis.Z, compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         elif geo_type == newton.GeoType.CYLINDER:
-            vertices, faces = newton.utils.create_cylinder_mesh(scale[0], scale[1], up_axis=2)
+            m = newton.Mesh.create_cylinder(scale[0], scale[1], up_axis=newton.Axis.Z, compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         elif geo_type == newton.GeoType.CONE:
-            vertices, faces = newton.utils.create_cone_mesh(scale[0], scale[1], up_axis=2)
+            m = newton.Mesh.create_cone(scale[0], scale[1], up_axis=newton.Axis.Z, compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         elif geo_type == newton.GeoType.BOX:
             ext = tuple(scale[:3]) if len(scale) >= 3 else (scale[0],) * 3
-            vertices, faces = newton.utils.create_box_mesh(ext)
+            m = newton.Mesh.create_box(*ext, compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         elif geo_type == newton.GeoType.ELLIPSOID:
             ext = tuple(scale[:3]) if len(scale) >= 3 else (scale[0],) * 3
-            vertices, faces = newton.utils.create_ellipsoid_mesh(ext)
+            m = newton.Mesh.create_ellipsoid(*ext, compute_inertia=False)
+            vertices, faces = m.vertices, m.indices
         else:
             return None, None
 
@@ -184,7 +193,7 @@ class BaseEnv:
                     },
                     "is_robot": body >= 0,
                     "shape_body": body,
-                    "shape_key": self.model.shape_key[sid] if self.model.shape_key else None,
+                    "shape_label": self.model.shape_label[sid] if self.model.shape_label else None,
                 }
             )
 

@@ -3,11 +3,12 @@ import numpy as np
 import warp as wp
 from omegaconf import OmegaConf
 import newton
+import newton.solvers
 import sys
 sys.path.append(str(Path(__file__).parents[2] / "newton"))
 
 from .cloth_env_base import ClothEnvBase
-from ..utils.env_utils import xyzw_to_wxyz, resolve_asset_path
+from ..utils.env_utils import xyzw_to_wxyz, quat_to_vec4, resolve_asset_path
 
 
 class ClothEnvARX(ClothEnvBase):
@@ -16,11 +17,14 @@ class ClothEnvARX(ClothEnvBase):
         super().__init__(cfg)
 
     def _setup_viewer_camera(self) -> None:
-        self.viewer.set_camera(pos=wp.vec3((1.5, 0.0, 0.75)), pitch=-30, yaw=180)
+        table_height = float(self.cfg.env.get("table_height", 0.0))
+        self.viewer.set_camera(pos=wp.vec3((1.5, 0.0, 0.75 + table_height)), pitch=-30, yaw=180)
 
     def _pre_finalize_scene(self) -> None:
         """Add ground plane before finalizing the combined model."""
-        self.scene.add_ground_plane()
+        self.multi_scene.default_shape_cfg.ke = 5.0e4
+        self.multi_scene.default_shape_cfg.kd = 5.0e2
+        self.multi_scene.add_ground_plane()
 
     def _load_urdf_asset(self, asset, pos: np.ndarray, quat: np.ndarray, xform) -> None:
         urdf_path = resolve_asset_path(asset.path)
@@ -79,6 +83,24 @@ class ClothEnvARX(ClothEnvBase):
         robot_builder.joint_effort_limit[6:8] = [20.0] * 2
         robot_builder.joint_armature[:6] = [0.1] * 6
         robot_builder.joint_armature[6:8] = [0.5] * 2
+
+        if getattr(self.cfg.env, "gravity_compensation", False):
+            # Enable MuJoCo gravity compensation for all arm joints and bodies so
+            # the impedance controller (which zeros joint_target_ke) is not fighting gravity.
+            # robot_builder is a fresh ModelBuilder (not built from MJCF), so we must explicitly
+            # register the MuJoCo custom attributes before accessing them.
+            newton.solvers.SolverMuJoCo.register_custom_attributes(robot_builder)
+            gravcomp_jnt = robot_builder.custom_attributes["mujoco:jnt_actgravcomp"]
+            if gravcomp_jnt.values is None:
+                gravcomp_jnt.values = {}
+            for dof_idx in range(self.num_arm_joints):
+                gravcomp_jnt.values[dof_idx] = True
+
+            gravcomp_body = robot_builder.custom_attributes["mujoco:gravcomp"]
+            if gravcomp_body.values is None:
+                gravcomp_body.values = {}
+            for body_idx in range(robot_builder.body_count):
+                gravcomp_body.values[body_idx] = 1.0
 
         base_pose = np.concatenate([pos, quat], axis=0)
         self.b2w_list.append(xyzw_to_wxyz(base_pose))

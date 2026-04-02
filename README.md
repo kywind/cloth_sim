@@ -1,12 +1,8 @@
 # Cloth Manipulation Simulation Environment
 
-This repository contains a physics-based simulation environment for **cloth manipulation tasks**.
+A physics-based simulation environment for **bimanual cloth manipulation** with deformable contact-rich interactions. Built on [NVIDIA Newton](https://github.com/newton-physics/newton) and designed for the [2026 WBCD competition](https://wbcdcompetition.github.io/) deformable manipulation track ([task details](https://wbcdcompetition.github.io/competition-tracks.html#dm)).
 
-The environment supports contact-rich interactions between deformable cloth and robot URDFs, and is intended to be used for demo collection, policy training, and evaluation. It is designed to support the [2026 WBCD competition](https://wbcdcompetition.github.io/). Please refer to the details of the deformable manipulation task in the competition [here](https://wbcdcompetition.github.io/competition-tracks.html#dm).
-
-The simulator is based on [NVIDIA Newton](https://github.com/newton-physics/newton). Although Newton has flexible support for deformable objects like clothes, it is still in **active beta development** stage. Thus, this repo is still subject to updates and needs case-specific integration into existing robot learning frameworks. Please be aware when adopting this environment for your own use.
-
-A video showing the WBCD deformable maipulation task:
+> **Note:** Newton is in active beta development. This repo is subject to updates and may need case-specific integration into existing robot learning frameworks.
 
 https://github.com/user-attachments/assets/c8cdb991-998f-4cec-9853-c7a65b4a8f7d
 
@@ -14,114 +10,173 @@ https://github.com/user-attachments/assets/c8cdb991-998f-4cec-9853-c7a65b4a8f7d
 
 ## Installation
 
-```
-# clone the repo
+```bash
+# Clone with submodules
 git clone --recurse-submodules git@github.com:kywind/cloth_sim.git
 cd cloth_sim
 
-# create and activate a python venv
+# Create and activate a Python 3.11 venv
 uv venv --python=3.11
 source .venv/bin/activate
 
-# install newton
-cd newton
-pip install -e ".[examples]"
-cd ..
+# Install Newton
+cd newton && uv pip install -e ".[examples]" && cd ..
 
-# (optionally) verify installation by running newton examples
-cd newton
-python -m newton.examples robot_h1
-cd ..
+# (Optional) Verify Newton installation
+cd newton && python -m newton.examples robot_h1 && cd ..
 
-# install main dependencies
+# Install PyTorch (CUDA 12.8)
 uv pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
 
-# additional packages
+# Install additional dependencies
 uv pip install opencv-python omegaconf hydra-core pynput transforms3d
 
-# for curobo
-mkdir third-party
-cd third-party
-git clone git@github.com:NVlabs/curobo.git
-cd curobo
-uv pip install --no-build-isolation -e .
-
-# version fix
+# Version fixes
 uv pip install imgui_bundle==1.92.5
 uv pip install --upgrade warp-lang
+
+# Install rl_games (for RL training and eval)
+cd rl_games && uv pip install -e . && cd ..
 ```
 
 ---
 
-## Usage - Quick Example
+## Quick Start
 
-```
-### Launch examples
+Run a scripted demo with two ARX arms manipulating a cloth garment:
 
-# normal (ik controller, default gl renderer)
+```bash
+# Default (IK controller, GL renderer)
 python experiments/demo.py
 
-# headless
+# Multiple parallel environments
+python experiments/demo.py env.num_envs=4
+
+# Joint-space control
+python experiments/demo.py controller=joint_pd env.num_envs=4
+
+# Headless with frame saving
 python experiments/demo.py env.headless=True save_state=True
 
-# save video after simulation with save_state=True (with example dir)
-python experiments/make_video.py log/experiments/output_demo/20260305-212500 --fps 60 --output log/experiments/output_demo/20260305-212500.mp4
-
-### Example options
-
-# tiled camera renderer (fast, parallelizable rendering, random shape colors, can perform depth rendering)
-python experiments/demo.py renderer=tiled_camera_renderer
-
-# tiled camera renderer + random shape color disabled
-python experiments/demo.py renderer=tiled_camera_renderer renderer.colors_per_shape=False
-
-# curobo controller
-python experiments/demo.py controller=curobo
-
-# diffik controller
-python experiments/demo.py controller=diffik
+# Convert saved frames to video
+python experiments/make_video.py log/experiments/output_demo/<timestamp> --fps 60 --output output.mp4
 ```
 
-All examples run a manually defined robot action trajectory. The headless + save video command should output a video as follows:
+**Renderer options:**
+
+```bash
+# Tiled camera renderer (fast, parallelizable, supports depth)
+python experiments/demo.py renderer=tiled_camera_renderer
+
+# Tiled camera renderer without random shape colors
+python experiments/demo.py renderer=tiled_camera_renderer renderer.colors_per_shape=False
+```
 
 https://github.com/user-attachments/assets/aff80727-78e5-4b54-a5f4-3e10f637680f
 
-Using the tiled camera renderer + save video should output a video as follows:
-
-https://github.com/user-attachments/assets/82cde720-dcd2-4403-98d3-fc936d01b77d
-
-With random shape color disabled:
-
-https://github.com/user-attachments/assets/28c0057b-819f-40bd-8fd0-b26fe70b200b
-
 ---
 
-## Usage - Keyboard Teleoperation
+## Keyboard Teleoperation
 
-```
-python experiments/teleop_keyboard.py
+```bash
+python experiments/teleop_keyboard.py                  # single env
+python experiments/teleop_keyboard.py env.num_envs=4   # multi-env
 ```
 
 **Key mappings:**
 
-- ```1, 2```, switching to left arm, switching to right arm
-- ```i, j, k, l```: forward (farther), left, backward (closer), right
-- ```p, ;```: up, down
-- ```z, x```: rotate around z (cartesian world frame)
-- ```c, v```: rotate around x (cartesian world frame)
-- ```b, n```: rotate around y (cartesian world frame)
-- ```',', '.'```: open gripper, close gripper
+| Keys | Action |
+|---|---|
+| `1` / `2` | Switch to left / right arm |
+| `i` / `k` | Forward (farther) / backward (closer) |
+| `j` / `l` | Left / right |
+| `p` / `;` | Up / down |
+| `z` / `x` | Rotate around z-axis |
+| `c` / `v` | Rotate around x-axis |
+| `b` / `n` | Rotate around y-axis |
+| `,` / `.` | Open / close gripper |
 
-All config settings can be applied the same way as the previous demo.
+All Hydra config overrides (e.g. `env.num_envs`, `controller`, `renderer`) work the same as in the demo.
 
 ---
 
-## Usage - Scene Layout
+## RL Training and Evaluation
 
-Robot and object layout configs could be configured in ```cfg/env/cloth_env_ARX.yaml```.
+### Task
+
+The `ClothLoadingTask` (`sim/task/cloth_loading_task.py`) trains two ARX arms to drape a cloth garment over a board. Task parameters are configured in `cfg/task/cloth_loading.yaml`.
+
+**Observation** (flattened vector per env):
+
+| Component | Dim | Description |
+|---|---|---|
+| `left_ee_pos` | 3 | Left end-effector position |
+| `left_ee_quat` | 4 | Left end-effector orientation (xyzw) |
+| `right_ee_pos` | 3 | Right end-effector position |
+| `right_ee_quat` | 4 | Right end-effector orientation (xyzw) |
+| `left_ee_to_cloth` | 3 | Vector from left EE to nearest cloth vertex |
+| `right_ee_to_cloth` | 3 | Vector from right EE to nearest cloth vertex |
+| `left_gripper_width` | 1 | Left gripper finger sum |
+| `right_gripper_width` | 1 | Right gripper finger sum |
+| `cloth_keypoints` | num_keypoints * 3 | Cloth keypoint positions (farthest-point sampled) |
+
+**Action** (14-dim): `[left_7, right_7]`, each `[dx, dy, dz, drx, dry, drz, gripper]` in `[-1, 1]`, mapped to delta EE pose targets.
+
+**Reward**: `sum(exp(-10 * d_i))` over 4 board edge midpoints, where `d_i` is the min distance to any cloth vertex. Range: [0, 4].
+
+### Training
+
+Uses [rl_games](https://github.com/Denys88/rl_games) PPO. Config is composed from `cfg/train_vec.yaml`, `cfg/rl/ppo.yaml`, `cfg/task/cloth_loading.yaml`, and `cfg/env/cloth_env_ARX.yaml`.
+
+```bash
+# Basic training (rl.params.wandb.entity is required)
+python experiments/rl_train.py env=cloth_env_ARX task=cloth_loading controller=ik \
+    train.exp_name=cloth_loading rl.params.wandb.entity=<your_wandb_entity>
+
+# Scale up parallel environments
+python experiments/rl_train.py env=cloth_env_ARX task=cloth_loading controller=ik \
+    train.exp_name=cloth_loading env.num_envs=128 rl.params.wandb.entity=<your_wandb_entity>
+
+# Resume from checkpoint
+python experiments/rl_train.py env=cloth_env_ARX task=cloth_loading controller=ik \
+    train.exp_name=cloth_loading train.checkpoint=log/runs/<run_name>/nn/<file>.pth \
+    rl.params.wandb.entity=<your_wandb_entity>
+```
+
+Logs and checkpoints are saved to `log/runs/<run_name>/` and synced to Weights & Biases.
+
+> **Note:** `batch_size = num_envs * horizon_length` must be divisible by `minibatch_size` (default 64, set in `cfg/rl/ppo.yaml`). When scaling up `num_envs`, you may want to increase `minibatch_size` accordingly (e.g. `rl.params.config.minibatch_size=1024` for `num_envs=128`).
+
+### Evaluation
+
+```bash
+# Evaluate with viewer
+python experiments/rl_eval.py env=cloth_env_ARX task=cloth_loading controller=ik \
+    train.checkpoint=log/runs/<run_name>/nn/<file>.pth
+
+# Multiple episodes
+python experiments/rl_eval.py env=cloth_env_ARX task=cloth_loading controller=ik \
+    train.checkpoint=log/runs/<run_name>/nn/<file>.pth eval.n_episodes=10
+
+# Log to wandb
+python experiments/rl_eval.py env=cloth_env_ARX task=cloth_loading controller=ik \
+    train.checkpoint=log/runs/<run_name>/nn/<file>.pth eval.wandb=true
+```
+
+Eval opens a single-env viewer, prints per-step reward components, and saves videos to `log/runs/<run_name>/eval_videos/`.
+
+---
+
+## Scene Layout
+
+The scene (robots, cloth, table, board) is configured in `cfg/env/cloth_env_ARX.yaml`. Each asset entry specifies its type, mesh path, and 4x4 pose matrix. Key parameters:
+
+- `table_height` -- height of the table surface (all assets are placed relative to this)
+- `assets` -- list of scene objects (URDFs, rigid meshes, cloth meshes)
+- `num_robot`, `num_arm_joints`, `num_gripper_joints` -- robot configuration
 
 ---
 
 ## Contact
 
-For any questions regarding the repository, please create issues or contact the author, [Kaifeng Zhang](https://kywind.github.io/).
+For questions, please [open an issue](https://github.com/kywind/cloth_sim/issues) or contact [Kaifeng Zhang](https://kywind.github.io/).

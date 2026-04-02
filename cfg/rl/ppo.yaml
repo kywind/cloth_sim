@@ -1,0 +1,90 @@
+params:
+  torch_threads: 4
+  seed: 42
+  load_checkpoint: False
+  load_path: nn/${train.exp_name}.pth
+
+  wandb:
+    project: ${train.exp_name}
+    entity: ???  # required: set via CLI, e.g. rl.params.wandb.entity=<your_entity>
+    name: null
+
+  algo:
+    name: a2c_continuous
+
+  model:
+    name: continuous_a2c_logstd
+
+  network:
+    name: actor_critic
+    separate: False        # shared backbone for actor + critic
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init:
+          name: default
+          scale: 0.01
+        sigma_init:
+          name: const_initializer
+          val: 0           # log-std starts at 0 → std = 1
+        fixed_sigma: True
+    mlp:
+      units: [256, 128, 64]
+      activation: elu
+      initializer:
+        name: default
+      regularizer:
+        name: None
+
+  config:
+    full_experiment_name: null  # set dynamically to match wandb run name
+    num_actors: null  # will be overwritten
+  
+    env_class: sim.rl.base_vec_env.BaseVecEnv
+    vecenv_type: ${train.exp_name}
+    env_name: ${train.exp_name}
+    name: ${train.exp_name}  # for saving checkpoints, etc.
+
+    # --- training schedule ---
+    max_epochs: 2000
+    save_best_after: 50
+    save_frequency: 50
+    score_to_win: 100000    # effectively disabled; train for max_epochs
+
+    # --- reward shaping ---
+    reward_shaper:
+      scale_value: 0.01     # raw rewards are O(10), scale down for value net
+
+    # --- rollout & update ---
+    horizon_length: 64      # steps collected per env before each PPO update
+    minibatch_size: 64      # must divide num_actors * horizon_length (batch_size = num_envs * horizon_length)
+    mini_epochs: 8          # gradient passes over the rollout buffer per update
+
+    # --- PPO ---
+    gamma: 0.99
+    tau: 0.95               # GAE lambda
+    e_clip: 0.2
+    clip_value: True
+    critic_coef: 2.0
+    bounds_loss_coef: 0.001
+    entropy_coef: 0.0
+    grad_norm: 1.0
+    truncate_grads: True
+    normalize_advantage: True
+
+    # --- learning rate ---
+    learning_rate: 3.0e-4
+    lr_schedule: adaptive
+    kl_threshold: 0.008
+
+    # --- normalisation ---
+    normalize_input: True   # running mean/std on observations
+    normalize_value: True   # running mean/std on value targets
+
+    # torch.compile is disabled: Warp CUDA kernels conflict with
+    # torch.compile's graph capture on the same GPU stream.
+    torch_compile: False
+
+    train_dir: log/runs
+    print_stats: True

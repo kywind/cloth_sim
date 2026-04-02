@@ -1,0 +1,40 @@
+# Hydra config for vectorised RL training.
+#
+# Compose groups:
+#   env      — simulation env (physics, num_envs, assets)            cfg/env/
+#   rl       — RL task + algorithm + hyperparameters                 cfg/rl/
+#
+# Usage:
+#   python experiments/train_pickup.py
+#   python experiments/train_pickup.py env.num_envs=128
+#   python experiments/train_pickup.py rl=franka_pickup_ppo
+
+defaults:
+  - env: cube_env
+  - controller: ik_grasp
+  - rl: ppo
+  - task: pickup_cartesian
+  - _self_
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+seed: 42
+
+train:
+  exp_name: null
+  checkpoint: null  # path to .pth to resume/eval; e.g. log/runs/.../nn/default_task.pth
+  record_every: 50   # record a rollout video every N epochs (0 to disable)
+  video_length: 128  # max frames per video
+  video_fps: null      # video playback fps
+
+eval:
+  wandb: false
+  n_episodes: 1
+  fps: null
+  deterministic: true
+  slowmo: 0.0

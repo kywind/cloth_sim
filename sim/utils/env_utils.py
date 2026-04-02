@@ -3,7 +3,10 @@ import numpy as np
 import warp as wp
 import newton
 from newton import ParticleFlags
-from newton.utils import transform_twist
+try:
+    from newton.utils import transform_twist
+except ImportError:
+    from newton.math import transform_twist
 
 
 def xyzw_to_wxyz(pose: np.ndarray):
@@ -90,13 +93,11 @@ def compute_body_out(
     bodies_per_robot: int,
     body_offset: wp.transform,
     # outputs
-    body_out: wp.array(dtype=float)
+    body_out: wp.array(dtype=wp.spatial_vector)
 ):
-    # TODO verify transform twist
     robot_id = wp.tid()
     mv = transform_twist(body_offset, body_qd[bodies_per_robot * robot_id + body_id])
-    for i in range(6):
-        body_out[6 * robot_id + i] = mv[i]  # 6: twist dimension
+    body_out[robot_id] = mv
 
 
 @wp.kernel
@@ -305,6 +306,29 @@ def combine_transforms(parent: np.ndarray, child: np.ndarray) -> np.ndarray:
     return np.concatenate([p, q])
 
 
+def axis_angle_to_quat_xyzw(aa: np.ndarray) -> np.ndarray:
+    """Convert axis-angle vectors (N, 3) to unit quaternions (N, 4) in xyzw order."""
+    theta = np.linalg.norm(aa, axis=1, keepdims=True)
+    safe = np.where(theta > 1e-8, theta, np.ones_like(theta))
+    axis = aa / safe
+    half = theta * 0.5
+    xyz = axis * np.sin(half)
+    w = np.cos(half)
+    return np.concatenate([xyz, w], axis=1)
+
+
+def quat_mul_xyzw(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Batch quaternion product q1 * q2, both (N, 4) xyzw, returns (N, 4) xyzw."""
+    x1, y1, z1, w1 = q1[:, 0], q1[:, 1], q1[:, 2], q1[:, 3]
+    x2, y2, z2, w2 = q2[:, 0], q2[:, 1], q2[:, 2], q2[:, 3]
+    return np.stack([
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2,
+        w1*w2 - x1*x2 - y1*y2 - z1*z2,
+    ], axis=1)
+
+
 def quat_to_vec4(q: wp.quat) -> wp.vec4:
     """Convert a quaternion to a vec4."""
     return wp.vec4(q[0], q[1], q[2], q[3])
@@ -325,3 +349,37 @@ def broadcast_ik_solution_kernel(
         joint_targets[robot_id * num_total_joints + j] = ik_solution[0, j]
     for j in range(num_gripper_joints):
         joint_targets[robot_id * num_total_joints + num_arm_joints + j] = gripper_value
+
+
+def onehot(i, out_dim):
+    """Generate a one-hot vector of length out_dim with a 1.0 at index i."""
+    return wp.array([1.0 if j == i else 0.0 for j in range(out_dim)], dtype=float)
+
+
+@wp.kernel
+def write_targets_kernel(
+    targets: wp.array2d(dtype=float),
+    out: wp.array(dtype=float),
+    stride: int,
+):
+    env_id, joint_id = wp.tid()
+    out[env_id * stride + joint_id] = targets[env_id, joint_id]
+
+
+@wp.kernel
+def scatter_ik_solutions_kernel(
+    ik_solution: wp.array2d(dtype=wp.float32),   # (num_envs, n_coords)
+    gripper_values: wp.array(dtype=wp.float32),  # (num_envs,)
+    num_arm_joints: int,
+    num_gripper_joints: int,
+    robot_id: int,
+    dofs_per_world: int,
+    joint_targets: wp.array(dtype=wp.float32),
+):
+    world_idx = wp.tid()
+    num_total_joints = num_arm_joints + num_gripper_joints
+    base = world_idx * dofs_per_world + robot_id * num_total_joints
+    for j in range(num_arm_joints):
+        joint_targets[base + j] = ik_solution[world_idx, j]
+    for j in range(num_gripper_joints):
+        joint_targets[base + num_arm_joints + j] = gripper_values[world_idx]

@@ -109,11 +109,12 @@ class KeyboardTeleopEnv:
         listener.start()
 
         if cfg.env.num_robot == 2:  # ARX
+            table_height = float(cfg.env.get("table_height", 0.0))
             targets = np.array(
                 [
                     [
-                        0.50, -0.25, 0.40, 0.0, 0.0, np.sin(np.pi / 4), np.cos(np.pi / 4), 0.04,
-                        0.50, 0.25, 0.40, 0.0, 0.0, -np.sin(np.pi / 4), np.cos(np.pi / 4), 0.04,
+                        0.50, -0.25, 0.40 + table_height, 0.0, 0.0, np.sin(np.pi / 4), np.cos(np.pi / 4), 0.04,
+                        0.50, 0.25, 0.40 + table_height, 0.0, 0.0, -np.sin(np.pi / 4), np.cos(np.pi / 4), 0.04,
                     ],
                 ], dtype=np.float32
             )  # xyzw
@@ -152,7 +153,7 @@ class KeyboardTeleopEnv:
             print(f"Target: {target}")
 
             if not env.viewer.is_paused():
-                env.step({'target': target})
+                env.step({'target': np.tile(target, (env.num_envs, 1))})
 
             render_result = env.render(return_renderings=self.cfg.save_state)
 

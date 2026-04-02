@@ -26,6 +26,7 @@ class ClothEnvBase(BaseEnv):
         self.endeffector_id = int(self.cfg.env.endeffector_id)
         self.num_arm_joints = int(self.cfg.env.num_arm_joints)
         self.num_gripper_joints = int(self.cfg.env.num_gripper_joints)
+        self.num_joints = self.num_arm_joints + self.num_gripper_joints
         self.endeffector_offset = wp.transform(
             wp.vec3(0.0, 0.0, 0.0),
             wp.quat_identity(),
@@ -40,22 +41,14 @@ class ClothEnvBase(BaseEnv):
 
         self.cloth_solver_type = self.cfg.env.cloth_solver_type
         assert self.cloth_solver_type in ['vbd', 'style3d'], "Unsupported cloth solver type"
-
-        self.cloth_body_contact_margin = 0.01
-        self.cloth_self_contact_radius = 0.002
-        self.cloth_self_contact_margin = 0.003
-
-        self.soft_contact_ke = 1e4
-        self.soft_contact_kd = 0.1
-
-        self.robot_friction = 1.0
-        self.table_friction = 0.25
-        self.cloth_friction = 0.25
+        self._particles_per_world = 0
 
         self._build_scene()
 
-        self.viewer.set_model(self.model)
+        max_viewer_worlds = int(cfg.env.get("max_viewer_worlds", 4))
+        self.viewer.set_model(self.model, max_worlds=min(self.num_envs, max_viewer_worlds))
         self._setup_viewer_camera()
+        self.viewer.set_world_offsets(wp.vec3(2.0, 2.0, 0.0))
 
         # Base control arrays
         self.control = self.model.control()
@@ -97,7 +90,7 @@ class ClothEnvBase(BaseEnv):
             reduce_contacts=True,
             broad_phase="explicit",
             sdf_hydroelastic_config=sdf_hydroelastic_config,
-            soft_contact_margin=self.cloth_body_contact_margin,
+            soft_contact_margin=0.01,
         )
         self.contacts = self.collision_pipeline.contacts()
 
@@ -132,7 +125,7 @@ class ClothEnvBase(BaseEnv):
         self.scene.default_shape_cfg.ke = 5.0e4
         self.scene.default_shape_cfg.kd = 5.0e2
         self.scene.default_shape_cfg.kf = 1.0e3
-        self.scene.default_shape_cfg.mu = self.table_friction
+        self.scene.default_shape_cfg.mu = 0.25
 
         self.gs_assets = []
         self.mesh_assets = {}
@@ -165,17 +158,36 @@ class ClothEnvBase(BaseEnv):
         for asset in self.cfg.env.assets:
             self.load_asset(asset)
 
+        self.multi_scene = newton.ModelBuilder()
+        self.multi_scene.replicate(self.scene, world_count=self.num_envs)
+
         self._pre_finalize_scene()
 
-        self.model = self.scene.finalize(requires_grad=False)
-        self.model.soft_contact_ke = self.soft_contact_ke
-        self.model.soft_contact_kd = self.soft_contact_kd
-        self.model.soft_contact_mu = self.cloth_friction
+        if self.cloth_solver_type == 'vbd':
+            self.multi_scene.color()
+
+        self.model = self.multi_scene.finalize(requires_grad=False)
+        self.model.soft_contact_ke = 1e4
+        self.model.soft_contact_kd = 0.1
+        self.model.soft_contact_mu = 0.25
 
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
 
         self.sim_time = 0.0
+
+        self._coords_per_world = self.model.joint_coord_count // self.num_envs
+        self._dofs_per_world = self.model.joint_dof_count // self.num_envs
+
+        # Initial state snapshot for reset
+        self._init_joint_q = self.state_0.joint_q.numpy().copy()
+        self._init_joint_qd = self.state_0.joint_qd.numpy().copy()
+        if self._particles_per_world > 0:
+            self._init_particle_q = self.state_0.particle_q.numpy().copy()
+            self._init_particle_qd = self.state_0.particle_qd.numpy().copy()
+        else:
+            self._init_particle_q = None
+            self._init_particle_qd = None
 
         self.robot_solver = newton.solvers.SolverMuJoCo(
             self.model,
@@ -196,7 +208,7 @@ class ClothEnvBase(BaseEnv):
                 iterations=self.iterations,
                 two_way_coupling=True,
             )
-            self.cloth_solver.precompute(self.scene)
+            self.cloth_solver.precompute(self.multi_scene)
             self.cloth_solver.collision.radius = 3.5e-3
         else:
             self.model.edge_rest_angle.zero_()
@@ -205,8 +217,8 @@ class ClothEnvBase(BaseEnv):
                 iterations=self.iterations,
                 integrate_with_external_rigid_solver=True,
                 two_way_coupling=True,
-                particle_self_contact_radius=self.cloth_self_contact_radius,
-                particle_self_contact_margin=self.cloth_self_contact_margin,
+                particle_self_contact_radius=0.002,
+                particle_self_contact_margin=0.003,
                 particle_topological_contact_filter_threshold=1,
                 particle_rest_shape_contact_exclusion_radius=0.5,
                 particle_enable_self_contact=True,
@@ -305,6 +317,7 @@ class ClothEnvBase(BaseEnv):
                 is_static = False
                 vertices = [wp.vec3(*v.tolist()) for v in mesh_points]
                 indices = mesh_indices.tolist()
+                self._particles_per_world = len(vertices)  # new: keeps track of particles per world for reset
                 if self.cloth_solver_type == 'style3d':
                     style3d.add_cloth_mesh(
                         self.scene,
@@ -399,3 +412,45 @@ class ClothEnvBase(BaseEnv):
             self.cloth_solver.step(self.state_0, self.state_1, self.control, self.contacts, self.sim_dt)
 
             self.state_0, self.state_1 = self.state_1, self.state_0
+
+    def reset(self, mask: np.ndarray = None):
+        if mask is None:
+            wp.copy(self.state_0.joint_q, wp.array(self._init_joint_q, dtype=float))
+            wp.copy(self.state_0.joint_qd, wp.array(self._init_joint_qd, dtype=float))
+            wp.copy(self.state_1.joint_q, wp.array(self._init_joint_q, dtype=float))
+            wp.copy(self.state_1.joint_qd, wp.array(self._init_joint_qd, dtype=float))
+        else:
+            jq = self.state_0.joint_q.numpy()
+            jqd = self.state_0.joint_qd.numpy()
+            for env_id in np.where(mask)[0]:
+                s_q = env_id * self._coords_per_world
+                s_qd = env_id * self._dofs_per_world
+                jq[s_q:s_q + self._coords_per_world] = self._init_joint_q[s_q:s_q + self._coords_per_world]
+                jqd[s_qd:s_qd + self._dofs_per_world] = self._init_joint_qd[s_qd:s_qd + self._dofs_per_world]
+            self.state_0.joint_q.assign(jq)
+            self.state_0.joint_qd.assign(jqd)
+            wp.copy(self.state_1.joint_q, self.state_0.joint_q)
+            wp.copy(self.state_1.joint_qd, self.state_0.joint_qd)
+
+        if self._init_particle_q is not None:
+            if mask is None:
+                self.state_0.particle_q.assign(self._init_particle_q)
+                self.state_0.particle_qd.assign(self._init_particle_qd)
+                self.state_1.particle_q.assign(self._init_particle_q)
+                self.state_1.particle_qd.assign(self._init_particle_qd)
+            else:
+                pq = self.state_0.particle_q.numpy()
+                pqd = self.state_0.particle_qd.numpy()
+                for env_id in np.where(mask)[0]:
+                    s = env_id * self._particles_per_world
+                    e = s + self._particles_per_world
+                    pq[s:e] = self._init_particle_q[s:e]
+                    pqd[s:e] = self._init_particle_qd[s:e]
+                self.state_0.particle_q.assign(pq)
+                self.state_0.particle_qd.assign(pqd)
+                self.state_1.particle_q.assign(pq)
+                self.state_1.particle_qd.assign(pqd)
+
+        if mask is None:
+            self.sim_time = 0.0
+

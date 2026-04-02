@@ -1,0 +1,6 @@
+name: sim.task.ClothLoadingTask
+action_repeat: 1
+time_limit: 20.0
+max_xyz_delta: 0.005
+max_rot_delta: 0.01
+num_keypoints: 16

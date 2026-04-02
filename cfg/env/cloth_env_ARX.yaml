@@ -1,6 +1,8 @@
 name: sim.env.ClothEnvARX
 headless: False
 use_graph: True
+num_envs: 1
+max_viewer_worlds: 16
 num_robot: 2
 endeffector_id: 6
 num_arm_joints: 6
@@ -8,9 +10,24 @@ num_gripper_joints: 2
 gripper_min: 0.005
 gripper_max: 0.04
 use_mujoco: True
+gravity_compensation: False
 cloth_solver_type: style3d
 
+table_height: 0.75
+
 assets:
+  - name: table
+    type: mesh
+    mesh_type: rigid
+    primitive_type: box
+    is_static: True
+    size: [1.2, 1.2, 0.75]
+    pose: [
+      1.0, 0.0, 0.0, 0.3,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.375,
+      0.0, 0.0, 0.0, 1.0
+    ]
   - name: left_arm
     type: urdf
     path: experiments/assets/robots/ARX-X5/X5A.urdf
@@ -18,7 +35,7 @@ assets:
     pose: [
       0.0, -1.0, 0.0, 0.5,
       1.0, 0.0, 0.0, -0.55,
-      0.0, 0.0, 1.0, 0.01,
+      0.0, 0.0, 1.0, 0.76,
       0.0, 0.0, 0.0, 1.0
     ]
   - name: right_arm
@@ -28,7 +45,7 @@ assets:
     pose: [
       0.0, 1.0, 0.0, 0.5,
       -1.0, 0.0, 0.0, 0.55,
-      0.0, 0.0, 1.0, 0.01,
+      0.0, 0.0, 1.0, 0.76,
       0.0, 0.0, 0.0, 1.0
     ]
   - name: cloth
@@ -45,9 +62,9 @@ assets:
     edge_aniso_ke: [2.0e-5, 2.0e-5, 2.0e-5]
     particle_radius: 0.003
     pose: [
-      0.0, -1.0, 0.0, 0.4,
+      0.0, -1.0, 0.0, 0.1,
       1.0,  0.0, 0.0, 0.0,
-      0.0,  0.0, 1.0, 0.2,
+      0.0,  0.0, 1.0, 0.95,
       0.0,  0.0, 0.0, 1.0
     ]
   - name: board
@@ -59,6 +76,6 @@ assets:
     pose: [
       1.0, 0.0, 0.0, 0.70,
       0.0, 1.0, 0.0, 0.0,
-      0.0, 0.0, 1.0, 0.15,
+      0.0, 0.0, 1.0, 0.90,
       0.0, 0.0, 0.0, 1.0
     ]
